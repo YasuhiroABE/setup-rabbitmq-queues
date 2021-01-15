@@ -1,6 +1,7 @@
 
 setup:
-	bundle install --path lib
+	bundle config set path lib 
+	bundle install
 
 clean:
 	( find . -name '*~' -type f -exec rm {} \; -print )

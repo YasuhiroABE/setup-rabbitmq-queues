@@ -18,10 +18,10 @@ $ sudo docker run -it -d --rm --name solr -p 8983:8983 rabbitmq:3.8.9-management
 ## Assumptions
 
 If you would like to use the RabbitMQ server with your "webapp" application, 
-we assumes the followings;
+we assume the followings;
 
 1. Your application uses the "webapp" user connecting to the RabbitMQ server.
-2. Your application uses the "/webapp" virtual host only. It means all of your queues and exchanges are defined under this virutla host.
+2. Your application uses the "/webapp" virtual host only, which means all of your queues and exchanges are defined under this virutal host.
 3. Your application uses some queues with a name like webapp.xxxx.
 4. All queues use the same dead letter exchange with a name like webapp.dlx.
 5. All queues use the same exchange with a name like webapp.
@@ -30,4 +30,18 @@ we assumes the followings;
 ## Configuration example
 
 ```
+{
+    "appname":"app01",
+    "password":"secret",
+    "node":"rabbit@44e37ddd76da",
+    "queues":["queue01", "queue02"]
+}
+
+```
+
+## How to use this script.
+
+```
+$ make setup
+$ ./setup-rabbitmq-queues.rb set sample-config.json
 ```
