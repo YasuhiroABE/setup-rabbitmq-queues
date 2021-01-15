@@ -68,13 +68,10 @@ end
 
 HTTP_CONTENT_TYPE = { "Content-Type" => "application/json" }
 def request(operation, httpclient, url, req)
-  p url
-  p req.to_json
   httpclient.set_auth(url, RQAPI_USER, RQAPI_PASS)
   ret = httpclient.delete(url, req.to_json, HTTP_CONTENT_TYPE) if operation == :delete
   ret = httpclient.post(url, req.to_json, HTTP_CONTENT_TYPE) if operation == :post
   ret = httpclient.put(url, req.to_json, HTTP_CONTENT_TYPE) if operation == :put
-  p ret.body
 end
 
 ## check operation
