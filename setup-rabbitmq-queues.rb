@@ -3,9 +3,18 @@
 
 def usage
   puts <<EOF
-  usage: $ #{$0} <set|remove> file ...
+  usage: $ #{$0} <setup|delete> file ...
 
-  EXAMPLE - file format
+  ENVIRONMENT
+  It uses the following environment variables:
+
+  * RQAPI_URLBASE (default: http://127.0.0.1:15672/api)
+  * RQAPI_USER (default: guest)
+  * RQAPI_PASS (default: guest)
+
+  EXAMPLE of FILE FORMAT
+  The user can configure the arbitrary number of files as arguments.
+  Following is an example of the file.
   ---------------------------------
   {
     "appname":"app01",
@@ -22,39 +31,12 @@ require 'bundler/setup'
 require 'json'
 require 'httpclient'
 
-## possible operations as args
-OPERATION_SETUP = "set"
-OPERATION_DELETE = "remove"
-OPERATIONS = [OPERATION_SETUP, OPERATION_DELETE]
-
-# The RQConfig class
-class RQConfig
-  attr_reader :node, :appname, :password, :queues
-  def initialize(filepath)
-    open(filepath) { |data|
-      json = JSON.load(data)
-      @node = json["node"]
-      @appname = json["appname"]
-      @password = json["password"]
-      @queues = json["queues"]
-    }
-  end
-end
-
 ## Setup the RQAPI_URLBASE variable
 if ENV.has_key?("RQAPI_URLBASE")
   RQAPI_URLBASE = ENV['RQAPI_URLBASE']
 else
   RQAPI_URLBASE = "http://127.0.0.1:15672/api"
 end
-## define each specific URLs
-RQAPI_USER_URL = RQAPI_URLBASE + "/users/"
-RQAPI_VHOST_URL = RQAPI_URLBASE + "/vhosts/"
-RQAPI_PERMISSION_URL = RQAPI_URLBASE + "/permissions/"
-RQAPI_EXCHANGE_URL = RQAPI_URLBASE + "/exchanges/"
-RQAPI_QUEUE_URL = RQAPI_URLBASE + "/queues/"
-RQAPI_BINDING_URL = RQAPI_URLBASE + "/bindings/"
-
 if ENV.has_key?("RQAPI_USER")
   RQAPI_USER = ENV['RQAPI_USER']
 else
@@ -66,8 +48,94 @@ else
   RQAPI_PASS = "guest"
 end
 
+## possible operations as args
+OPERATION_SETUP = "setup"
+OPERATION_DELETE = "delete"
+OPERATIONS = [OPERATION_SETUP, OPERATION_DELETE]
+
+# The RQConfig class
+class RQConfig
+  attr_reader :node, :appname, :password, :queues, :dlexname, :dlqname, :opts
+  
+  def initialize(filepath)
+    open(filepath) { |data|
+      json = JSON.load(data)
+      @node = json["node"] ## String
+      @appname = json["appname"] ## String
+      @password = json["password"] ## String
+      @queues = json["queues"] ## Array
+      @dlexname = @appname + ".dlx" ## Dead Letter Exchange Name
+      @opts = [:user, :vhost, :perm, :dlexchange, :exchange, :dlqueue, :queue, :dlbinding, :binding]
+    }
+  end
+  
+  # Returns the dead letter queue name
+  def dlqname(q)
+    q + ".dl" 
+  end
+
+  def requrl(type, queue = nil)
+    case type
+    when :user
+      return RQAPI_URLBASE + "/users/" + @appname
+    when :vhost
+      return RQAPI_URLBASE + "/vhosts/" + "%2f" + @appname
+    when :perm
+      return RQAPI_URLBASE + "/permissions/" + "%2f" + @appname + "/" + @appname
+    when :exchange
+      return RQAPI_URLBASE + "/exchanges/" + "%2f" + @appname + "/" + @appname
+    when :dlexchange
+      return RQAPI_URLBASE + "/exchanges/" + "%2f" + @appname + "/" + @dlexname
+    when :dlqueue
+      return RQAPI_URLBASE + "/queues/" + "%2f" + @appname + "/" + dlqname(queue)
+    when :queue
+      return RQAPI_URLBASE + "/queues/" + "%2f" + @appname + "/" + queue
+    when :dlbinding
+      return RQAPI_URLBASE + "/bindings/" + "%2f" + @appname + "/e/" + @dlexname + "/q/" + dlqname(queue)
+    when :binding
+      return RQAPI_URLBASE + "/bindings/" + "%2f" + @appname + "/e/" + @appname + "/q/" + queue
+    end
+  end
+  
+  # Returns the json object of the request body.
+  # type - one of @opts (:user,:vhost,:perm,:dlexchange,:exchange,:dlqueue,:queue,:dlbinding,:binding)
+  def reqopt(type, queue = nil)
+    raise unless @opts.include?(type)
+    case type
+    when :user
+      return { :password => @password, :tags => "administrator" }
+    when :vhost
+      return {}
+    when :perm
+      return { :configure => ".*", :write => ".*", :read => ".*" }
+    when :exchange, :dlexchange
+      return {"type":"direct","auto_delete":false,"durable":true,"internal":false,"arguments":{}}
+    when :dlqueue
+      return {"auto_delete":false,"durable":true,"arguments":{"x-queue-type":"quorum"},"node":@node}
+    when :queue
+      return {"auto_delete":false,
+              "durable":true,
+              "arguments":{"x-dead-letter-exchange":@dlexname,
+                           "x-dead-letter-routing-key":queue,
+                           "x-queue-type": "quorum"},
+              "node":@node}
+    when :dlbinding
+      return {
+        :routing_key => dlqname(queue),
+        :arguments => {}
+      }
+    when :binding
+      return {
+        :routing_key => queue,
+        :arguments => {}
+      }
+    end
+  end
+end
+
 HTTP_CONTENT_TYPE = { "Content-Type" => "application/json" }
 def request(operation, httpclient, url, req)
+  o = { :request => operation, :url => url }.to_json
   httpclient.set_auth(url, RQAPI_USER, RQAPI_PASS)
   ret = httpclient.delete(url, req.to_json, HTTP_CONTENT_TYPE) if operation == :delete
   ret = httpclient.post(url, req.to_json, HTTP_CONTENT_TYPE) if operation == :post
@@ -90,90 +158,32 @@ if operation == OPERATION_DELETE
     config = RQConfig.new(f)
     client = HTTPClient.new(:force_basic_auth => true)
     for queue in config.queues
-      ## delete QUEUE
-      rqapi_url = RQAPI_QUEUE_URL + "%2f" + config.appname + "/" + queue + ".dl"
-      request(:delete, client, rqapi_url, {})
-
-      rqapi_url = RQAPI_QUEUE_URL + "%2f" + config.appname + "/" + queue
-      request(:delete, client, rqapi_url, {})
+      request(:delete, client, config.requrl(:dlqueue, queue), {})
+      request(:delete, client, config.requrl(:queue, queue), {})
     end
-    ## delete EXCHANGES
-    rqapi_url = RQAPI_EXCHANGE_URL + "%2f" + config.appname + "/" + config.appname + ".dlx"
-    request(:delete, client, rqapi_url, {})
-    
-    rqapi_url = RQAPI_EXCHANGE_URL + "%2f" + config.appname + "/" + config.appname
-    request(:delete, client, rqapi_url, {})
-    
-    ## delete VIRTUALHOST
-    rqapi_url = RQAPI_VHOST_URL + "%2f" + config.appname
-    request(:delete, client, rqapi_url, {})
-    
-    ## delete USER
-    rqapi_url = RQAPI_USER_URL + config.appname
-    request(:delete, client, rqapi_url, {})
+    request(:delete, client, config.requrl(:dlexchange), {})
+    request(:delete, client, config.requrl(:exchange), {})
+    request(:delete, client, config.requrl(:vhost), {})
+    request(:delete, client, config.requrl(:user), {})
   }
   exit 0
 end
 
-## parse files
+## if operation == OPERATION_SETUP ##
 ARGV.each { |f|
-  ret = {}
   config = RQConfig.new(f)
-
   client = HTTPClient.new(:force_basic_auth => true)
-  ## setup user
-  rqapi_url = RQAPI_USER_URL + config.appname
-  req = { :password => config.password, :tags => "administrator" }
-  request(:put, client, rqapi_url, req)
-  
-  ## setup virtual host
-  rqapi_url = RQAPI_VHOST_URL + "%2f" + config.appname
-  request(:put, client, rqapi_url, {})
 
-  ## setup permissions
-  rqapi_url = RQAPI_PERMISSION_URL + "%2f" + config.appname + "/" + config.appname
-  req = { :configure => ".*", :write => ".*", :read => ".*" }
-  request(:put, client, rqapi_url, req)
+  request(:put, client, config.requrl(:user), config.reqopt(:user))
+  request(:put, client, config.requrl(:vhost), config.reqopt(:vhost))
+  request(:put, client, config.requrl(:perm), config.reqopt(:perm))
+  request(:put, client, config.requrl(:exchange), config.reqopt(:exchange))
+  request(:put, client, config.requrl(:dlexchange), config.reqopt(:exchange))
   
-  ## set exchange
-  rqapi_url = RQAPI_EXCHANGE_URL + "%2f" + config.appname + "/" + config.appname
-  req = {"type":"direct","auto_delete":false,"durable":true,"internal":false,"arguments":{}}
-  request(:put, client, rqapi_url, req)
-  
-  ## set dead letter exchange
-  rqapi_url = RQAPI_EXCHANGE_URL + "%2f" + config.appname + "/" + config.appname + ".dlx"
-  req = {"type":"direct","auto_delete":false,"durable":true,"internal":false,"arguments":{}}
-  request(:put, client, rqapi_url, req)
-
   for queue in config.queues
-    ## set dead letter queue
-    rqapi_url = RQAPI_QUEUE_URL + "%2f" + config.appname + "/" + queue + ".dl"
-    req = {"auto_delete":false,"durable":true,"arguments":{"x-queue-type":"quorum"},"node":config.node}
-    request(:put, client, rqapi_url, req)
-    
-    ## set queues
-    rqapi_url = RQAPI_QUEUE_URL + "%2f" + config.appname + "/" + queue
-    req = {"auto_delete":false,
-           "durable":true,
-           "arguments":{"x-dead-letter-exchange":"#{config.appname}.dlx",
-                        "x-dead-letter-routing-key":"#{queue}.dl",
-                        "x-queue-type": "quorum"},
-           "node":config.node}
-    request(:put, client, rqapi_url, req)
-    
-    ## setup binding on exchange
-    rqapi_url = RQAPI_BINDING_URL + "%2f" + config.appname + "/e/" + config.appname + ".dlx" + "/q/" + queue + ".dl"
-    ret = {
-      "routing_key":"#{queue}.dl",
-      "arguments":{}
-    }
-    request(:post, client, rqapi_url, req)
-
-    rqapi_url = RQAPI_BINDING_URL + "%2f" + config.appname + "/e/" + config.appname + "/q/" + queue
-    ret = {
-      :routing_key => queue,
-      :arguments => {}
-    }
-    request(:post, client, rqapi_url, req)
+    request(:put, client, config.requrl(:dlqueue, queue), config.reqopt(:dlqueue, queue))
+    request(:put, client, config.requrl(:queue, queue), config.reqopt(:queue, queue))
+    request(:post, client, config.requrl(:dlbinding, queue), config.reqopt(:dlbinding, queue))
+    request(:post, client, config.requrl(:binding, queue), config.reqopt(:binding, queue))
   end
 }
