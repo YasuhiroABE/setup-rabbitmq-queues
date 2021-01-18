@@ -25,7 +25,7 @@ we assume the followings;
 3. Your application uses some queues with a name like webapp.xxxx.
 4. All queues use the same dead letter exchange with a name like webapp.dlx.
 5. All queues use the same exchange with a name like webapp.
-6. The routing key of exchanges has the same name of the corresponding queue.
+6. The routing key of exchanges has the same name as the corresponding queue.
 
 ## Configuration example
 
@@ -41,7 +41,20 @@ we assume the followings;
 
 ## How to use this script.
 
+After cloning this repository, please setup the essential libraries.
+
 ```
 $ make setup
-$ ./setup-rabbitmq-queues.rb set sample-config.json
+```
+
+Then, create your config.json file and call the script.
+
+```
+$ ./setup-rabbitmq-queues.rb setup config.json
+```
+
+If you want to delete the configuration, plase use the delete method.
+
+```
+$ ./setup-rabbitmq-queues.rb delete config.json
 ```
