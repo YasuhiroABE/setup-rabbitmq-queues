@@ -1,0 +1,6 @@
+{
+    "appname":"crawler",
+    "password":"secret",
+    "node":"rabbit@a383f06fc6d6",
+    "queues":["urlq"]
+}
