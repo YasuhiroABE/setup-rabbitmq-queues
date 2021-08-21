@@ -115,8 +115,8 @@ class RQConfig
     when :queue
       return {"auto_delete":false,
               "durable":true,
-              "arguments":{"x-dead-letter-exchange":@dlexname,
-                           "x-dead-letter-routing-key":queue,
+              "arguments":{"x-dead-letter-exchange": @dlexname,
+                           "x-dead-letter-routing-key": dlqname(queue),
                            "x-queue-type": "quorum"},
               "node":@node}
     when :dlbinding
