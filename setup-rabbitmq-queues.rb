@@ -26,10 +26,8 @@ def usage
 EOF
 end
 
-$: << "./lib"
 require 'bundler/setup'
-require 'json'
-require 'httpclient'
+Bundler.require
 
 ## Setup the RQAPI_URLBASE variable
 if ENV.has_key?("RQAPI_URLBASE")
@@ -58,8 +56,8 @@ class RQConfig
   attr_reader :node, :appname, :password, :queues, :dlexname, :dlqname, :opts
   
   def initialize(filepath)
-    open(filepath) { |data|
-      json = JSON.load(data)
+    File.open(filepath) { |f|
+      json = JSON.load(f)
       @node = json["node"] ## String
       @appname = json["appname"] ## String
       @password = json["password"] ## String
