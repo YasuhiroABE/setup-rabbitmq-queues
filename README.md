@@ -12,7 +12,7 @@ Before moving to the following examples, please make sure the rabbitmq is runnin
 ```
 ## in case of the docker,
 $ sudo docker pull rabbitmq:3.8.9-management
-$ sudo docker run -it -d --rm --name solr -p 8983:8983 rabbitmq:3.8.9-management
+$ sudo docker run -it -d --rm --name rabbitmq --hostname rabbitmq -p 8983:8983 rabbitmq:3.8.9-management
 ```
 
 ## Assumptions
@@ -33,7 +33,7 @@ we assume the followings;
 {
     "appname":"app01",
     "password":"secret",
-    "node":"rabbit@44e37ddd76da",
+    "node":"rabbit@rabbitmq",
     "queues":["queue01", "queue02"]
 }
 
